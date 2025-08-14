@@ -114,8 +114,8 @@ def train_and_save_model(training_data_path="https://raw.githubusercontent.com/a
     print(f"Columns: {list(df_train.columns)}")
     
     # Prepare training data
-    X_train = df_train.drop(columns=["File", "defects"]).values
     y_train = df_train['defects'].values
+    X_train = df_train.drop(columns=["File", "defects"]).values
     
     print(f"Features shape: {X_train.shape}")
     print(f"Labels shape: {y_train.shape}")
