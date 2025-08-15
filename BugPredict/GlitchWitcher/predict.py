@@ -8,7 +8,6 @@ import json
 import sys
 import os
 import scipy.stats as st
-import argparse 
 
 # Suppress warnings
 tf.disable_v2_behavior()
@@ -46,6 +45,7 @@ def format_predictions(predictions):
 
 def format_results_for_comparison(file_names, base_data, head_data):
     """Format results as tables comparing BEFORE and AFTER for each file"""
+    
     # First, calculate percentage changes for all files to determine sorting order
     file_changes = []
     
@@ -220,8 +220,9 @@ def load_trained_model(model_dir="trained_model"):
     
     return classifier
 
-def predict(features_file, model_dir="trained_model"):
+def predict(features_file, model_dir="trained_model", output_file=None):
     """Make predictions using pre-trained model"""
+    
     classifier = load_trained_model(model_dir)
     
     # Load test data
@@ -247,62 +248,114 @@ def predict(features_file, model_dir="trained_model"):
     # Format predictions for display
     prediction_data = format_predictions(pdf_predictions)
 
+    # Format and return results
+    results = format_results(file_names, prediction_data)
+    
+    # Save to output file if specified
+    if output_file:
+        # Create submission CSV format
+        submission_data = []
+        for i, file_name in enumerate(file_names):
+            if i < len(prediction_data):
+                # Use p_defective as the predicted v(g) value
+                predicted_vg = prediction_data[i]['p_defective']
+                submission_data.append({
+                    'File': file_name,
+                    'Predicted_v(g)': predicted_vg
+                })
+            else:
+                submission_data.append({
+                    'File': file_name,
+                    'Predicted_v(g)': 0.0
+                })
+        
+        submission_df = pd.DataFrame(submission_data)
+        submission_df.to_csv(output_file, index=False)
+        print(f"Predictions saved to {output_file}")
+    
     # Close the session
     classifier.dim_reduction_model.close()
     
-    # Return filenames and prediction data
-    return [str(f) for f in file_names], prediction_data
+    return results
 
-def _write_submission(head_file_names, head_data, output_path):
-    # Create a small submission CSV for downstream use (optional)
-    df = pd.DataFrame({
-        "File": head_file_names,
-        "PDF_Defective": [d["p_defective"] for d in head_data],
-        "PDF_NonDefective": [d["p_non_defective"] for d in head_data],
-    })
-    df.to_csv(output_path, index=False)
+def print_usage():
+    """Print usage information"""
+    print("Usage:")
+    print("  python predict.py <features_csv> [model_dir] [output_csv]")
+    print("  python predict.py --input <features_csv> --model-dir <model_dir> --output <output_csv>")
+    print("")
+    print("Arguments:")
+    print("  features_csv    Path to the CSV file containing extracted features")
+    print("  model_dir       Path to the directory containing trained model files (default: 'trained_model')")
+    print("  output_csv      Path to save predictions as CSV (optional)")
+    print("")
+    print("Examples:")
+    print("  python predict.py features.csv")
+    print("  python predict.py features.csv ./my_model")
+    print("  python predict.py features.csv ./my_model predictions.csv")
+    print("  python predict.py --input features.csv --model-dir ./my_model --output predictions.csv")
 
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser(description="Run REPD predictions and optionally format comparison markdown.")
-    parser.add_argument("--head", dest="head_csv", help="Head CSV (after PR) with features")
-    parser.add_argument("--base", dest="base_csv", help="Base CSV (before PR) with features")
-    parser.add_argument("--model-dir", dest="model_dir", default="trained_model", help="Path to trained_model folder")
-    parser.add_argument("--output", dest="output_csv", help="Optional output CSV for head predictions")
-    parser.add_argument("single_csv", nargs="?", help="Single CSV path if not using --head/--base")
-    args = parser.parse_args()
-
+    if len(sys.argv) < 2:
+        print_usage()
+        sys.exit(1)
+    
+    # Parse command line arguments
+    features_csv_path = None
+    model_dir = "trained_model"
+    output_file = None
+    
+    # Support both positional and named arguments
+    if sys.argv[1] == "--input":
+        # Named argument format
+        i = 1
+        while i < len(sys.argv):
+            if sys.argv[i] == "--input" and i + 1 < len(sys.argv):
+                features_csv_path = sys.argv[i + 1]
+                i += 2
+            elif sys.argv[i] == "--model-dir" and i + 1 < len(sys.argv):
+                model_dir = sys.argv[i + 1]
+                i += 2
+            elif sys.argv[i] == "--output" and i + 1 < len(sys.argv):
+                output_file = sys.argv[i + 1]
+                i += 2
+            else:
+                i += 1
+    else:
+        # Positional argument format
+        features_csv_path = sys.argv[1]
+        if len(sys.argv) > 2:
+            model_dir = sys.argv[2]
+        if len(sys.argv) > 3:
+            output_file = sys.argv[3]
+    
+    if not features_csv_path:
+        print("Error: Features CSV file path is required")
+        print_usage()
+        sys.exit(1)
+    
+    if not os.path.exists(features_csv_path):
+        print(f"Error: Features CSV file not found: {features_csv_path}")
+        sys.exit(1)
+    
+    if not os.path.exists(model_dir):
+        print(f"Error: Model directory not found: {model_dir}")
+        sys.exit(1)
+    
     try:
-        if args.head_csv and args.base_csv:
-            # Compare head vs base and print markdown table
-            head_files, head_pred = predict(args.head_csv, model_dir=args.model_dir)
-            base_files, base_pred = predict(args.base_csv, model_dir=args.model_dir)
-
-            # Assume same ordering from workflow (changed_files loop)
-            table_md = format_results_for_comparison(head_files, base_pred, head_pred)
-            print(table_md)  # stdout -> used in workflow comment
-
-            if args.output_csv:
-                _write_submission(head_files, head_pred, args.output_csv)
-
-        else:
-            # Single CSV mode; preserve old behavior
-            csv_path = args.single_csv or args.head_csv
-            if not csv_path:
-                print("Usage:\n  python predict.py <features.csv>\n  python predict.py --head metrics_head/summary_metrics.csv --base metrics_base/summary_metrics.csv [--model-dir trained_model] [--output submission.csv]")
-                sys.exit(1)
-
-            file_names, pred = predict(csv_path, model_dir=args.model_dir)
-            # Print a simple per-file readout (stdout)
-            for i, f in enumerate(file_names):
-                d = pred[i]
-                print(f"File: {f}")
-                print(f"PDF(Defective | Reconstruction Error): {d['p_defective']}")
-                print(f"PDF(Non-Defective | Reconstruction Error): {d['p_non_defective']}")
-                print()
-
-            if args.output_csv:
-                _write_submission(file_names, pred, args.output_csv)
+        results = predict(features_csv_path, model_dir, output_file)
+        
+        # For command line usage, print individual results
+        for result in results:
+            if 'error' in result:
+                print(f"File: {result['file']}")
+                print(f"Error: {result['error']}")
+            else:
+                print(f"File: {result['file']}")
+                print(f"PDF(Defective | Reconstruction Error): {result['p_defective']}")
+                print(f"PDF(Non-Defective | Reconstruction Error): {result['p_non_defective']}")
+            print()
+            
     except Exception as e:
-        # Surface errors but keep stderr separate from markdown
-        print(f"Error: {e}", file=sys.stderr)
-        sys.exit(2)
+        print(f"Error during prediction: {str(e)}", file=sys.stderr)
+        sys.exit(1)
