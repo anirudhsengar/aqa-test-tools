@@ -220,7 +220,7 @@ def load_trained_model(model_dir="trained_model"):
     
     return classifier
 
-def predict(features_file, model_dir="trained_model", output_file=None):
+def predict(features_file, model_dir="trained_model"):
     """Make predictions using pre-trained model"""
     
     classifier = load_trained_model(model_dir)
@@ -251,111 +251,27 @@ def predict(features_file, model_dir="trained_model", output_file=None):
     # Format and return results
     results = format_results(file_names, prediction_data)
     
-    # Save to output file if specified
-    if output_file:
-        # Create submission CSV format
-        submission_data = []
-        for i, file_name in enumerate(file_names):
-            if i < len(prediction_data):
-                # Use p_defective as the predicted v(g) value
-                predicted_vg = prediction_data[i]['p_defective']
-                submission_data.append({
-                    'File': file_name,
-                    'Predicted_v(g)': predicted_vg
-                })
-            else:
-                submission_data.append({
-                    'File': file_name,
-                    'Predicted_v(g)': 0.0
-                })
-        
-        submission_df = pd.DataFrame(submission_data)
-        submission_df.to_csv(output_file, index=False)
-        print(f"Predictions saved to {output_file}")
-    
     # Close the session
     classifier.dim_reduction_model.close()
     
     return results
 
-def print_usage():
-    """Print usage information"""
-    print("Usage:")
-    print("  python predict.py <features_csv> [model_dir] [output_csv]")
-    print("  python predict.py --input <features_csv> --model-dir <model_dir> --output <output_csv>")
-    print("")
-    print("Arguments:")
-    print("  features_csv    Path to the CSV file containing extracted features")
-    print("  model_dir       Path to the directory containing trained model files (default: 'trained_model')")
-    print("  output_csv      Path to save predictions as CSV (optional)")
-    print("")
-    print("Examples:")
-    print("  python predict.py features.csv")
-    print("  python predict.py features.csv ./my_model")
-    print("  python predict.py features.csv ./my_model predictions.csv")
-    print("  python predict.py --input features.csv --model-dir ./my_model --output predictions.csv")
-
 if __name__ == "__main__":
-    if len(sys.argv) < 2:
-        print_usage()
+    if len(sys.argv) != 2:
+        print("Usage: python predict.py <path_to_features.csv>")
+        print("Make sure the trained model exists in the 'trained_model' directory.")
         sys.exit(1)
     
-    # Parse command line arguments
-    features_csv_path = None
-    model_dir = "trained_model"
-    output_file = None
+    features_csv_path = sys.argv[1]
+    results = predict(features_csv_path)
     
-    # Support both positional and named arguments
-    if sys.argv[1] == "--input":
-        # Named argument format
-        i = 1
-        while i < len(sys.argv):
-            if sys.argv[i] == "--input" and i + 1 < len(sys.argv):
-                features_csv_path = sys.argv[i + 1]
-                i += 2
-            elif sys.argv[i] == "--model-dir" and i + 1 < len(sys.argv):
-                model_dir = sys.argv[i + 1]
-                i += 2
-            elif sys.argv[i] == "--output" and i + 1 < len(sys.argv):
-                output_file = sys.argv[i + 1]
-                i += 2
-            else:
-                i += 1
-    else:
-        # Positional argument format
-        features_csv_path = sys.argv[1]
-        if len(sys.argv) > 2:
-            model_dir = sys.argv[2]
-        if len(sys.argv) > 3:
-            output_file = sys.argv[3]
-    
-    if not features_csv_path:
-        print("Error: Features CSV file path is required")
-        print_usage()
-        sys.exit(1)
-    
-    if not os.path.exists(features_csv_path):
-        print(f"Error: Features CSV file not found: {features_csv_path}")
-        sys.exit(1)
-    
-    if not os.path.exists(model_dir):
-        print(f"Error: Model directory not found: {model_dir}")
-        sys.exit(1)
-    
-    try:
-        results = predict(features_csv_path, model_dir, output_file)
-        
-        # For command line usage, print individual results
-        for result in results:
-            if 'error' in result:
-                print(f"File: {result['file']}")
-                print(f"Error: {result['error']}")
-            else:
-                print(f"File: {result['file']}")
-                print(f"PDF(Defective | Reconstruction Error): {result['p_defective']}")
-                print(f"PDF(Non-Defective | Reconstruction Error): {result['p_non_defective']}")
-            print()
-            
-    except Exception as e:
-        print(f"Error during prediction: {str(e)}", file=sys.stderr)
-        sys.exit(1)
+    # For command line usage, print individual results
+    for result in results:
+        if 'error' in result:
+            print(f"File: {result['file']}")
+            print(f"Error: {result['error']}")
+        else:
+            print(f"File: {result['file']}")
+            print(f"PDF(Defective | Reconstruction Error): {result['p_defective']}")
+            print(f"PDF(Non-Defective | Reconstruction Error): {result['p_non_defective']}")
+        print()
